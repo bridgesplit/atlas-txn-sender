@@ -12,7 +12,7 @@ use jsonrpsee::{
     types::{error::INVALID_PARAMS_CODE, ErrorObjectOwned},
 };
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
-use solana_sdk::transaction::VersionedTransaction;
+use solana_sdk::{commitment_config::CommitmentConfig, transaction::VersionedTransaction};
 use solana_transaction_status::UiTransactionEncoding;
 use tracing::error;
 
@@ -80,7 +80,9 @@ impl AtlasTxnSenderServer for AtlasTxnSenderImpl {
             retry_count: 0,
             max_retries: params.max_retries,
         };
-        self.txn_sender.send_transaction(transaction);
+        self.txn_sender.send_transaction(transaction, Some(CommitmentConfig {
+            commitment: params.preflight_commitment.unwrap_or_default()
+        }));
         statsd_time!("send_transaction_time", start.elapsed());
         Ok(signature)
     }

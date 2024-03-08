@@ -9,6 +9,7 @@ use futures::StreamExt;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use solana_sdk::clock::UnixTimestamp;
+use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::signature::Signature;
 use tokio::{sync::RwLock, time::sleep};
 use tonic::async_trait;
@@ -24,7 +25,6 @@ use yellowstone_grpc_proto::{
 };
 
 use crate::solana_rpc::SolanaRpc;
-use crate::utils::unix_to_time;
 
 pub struct GrpcGeyserImpl<T> {
     grpc_client: Arc<RwLock<GeyserGrpcClient<T>>>,
@@ -174,6 +174,18 @@ impl<T: Interceptor + Send + Sync + 'static> GrpcGeyserImpl<T> {
 #[async_trait]
 impl<T: Interceptor + Send + Sync> SolanaRpc for GrpcGeyserImpl<T> {
     async fn confirm_transaction(&self, signature: String) -> Option<UnixTimestamp> {
+        let start = Instant::now();
+        // in practice if a tx doesn't land in less than 60 seconds it's probably not going to land
+        while start.elapsed() < Duration::from_secs(60) {
+            if let Some(block_time) = self.signature_cache.get(&signature) {
+                return Some(block_time.0.clone());
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        return None;
+    }
+    // unused for now
+     async fn confirm_transaction_with_commitment(&self, signature: String, _commitment_config: CommitmentConfig) -> Option<UnixTimestamp> { 
         let start = Instant::now();
         // in practice if a tx doesn't land in less than 60 seconds it's probably not going to land
         while start.elapsed() < Duration::from_secs(60) {

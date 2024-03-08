@@ -5,7 +5,7 @@ use solana_client::{
     connection_cache::ConnectionCache, nonblocking::tpu_connection::TpuConnection,
 };
 use solana_program_runtime::compute_budget::ComputeBudget;
-use solana_sdk::transaction::{self, VersionedTransaction};
+use solana_sdk::{commitment_config::CommitmentConfig, transaction::VersionedTransaction};
 use tokio::{
     runtime::{Builder, Runtime},
     time::sleep,
@@ -21,7 +21,7 @@ use crate::{
 
 #[async_trait]
 pub trait TxnSender: Send + Sync {
-    fn send_transaction(&self, txn: TransactionData);
+    fn send_transaction(&self, txn: TransactionData, commitment_config: Option<CommitmentConfig>);
 }
 
 pub struct TxnSenderImpl {
@@ -130,7 +130,8 @@ impl TxnSenderImpl {
             }
         });
     }
-    fn track_transaction(&self, transaction_data: &TransactionData) {
+    fn track_transaction(&self, transaction_data: &TransactionData, commitment_config: Option<CommitmentConfig>) {
+        let commitment_config = commitment_config.unwrap_or_else(|| CommitmentConfig::default());
         let sent_at = transaction_data.sent_at.clone();
         let signature = get_signature(transaction_data);
         if signature.is_none() {
@@ -147,7 +148,7 @@ impl TxnSenderImpl {
         let solana_rpc = self.solana_rpc.clone();
         let transaction_store = self.transaction_store.clone();
         self.txn_sender_runtime.spawn(async move {
-            let confirmed_at = solana_rpc.confirm_transaction(signature.clone()).await;
+            let confirmed_at = solana_rpc.confirm_transaction_with_commitment(signature.clone(), commitment_config).await;
             transaction_store.remove_transaction(signature);
             if let Some(confirmed_at) = confirmed_at {
                 statsd_count!("transactions_landed", 1, "priority_fees" => &priority_fees);
@@ -194,8 +195,8 @@ pub fn compute_priority_fee(transaction: &VersionedTransaction) -> Option<u64> {
 
 #[async_trait]
 impl TxnSender for TxnSenderImpl {
-    fn send_transaction(&self, transaction_data: TransactionData) {
-        self.track_transaction(&transaction_data);
+    fn send_transaction(&self, transaction_data: TransactionData, commitment_config: Option<CommitmentConfig>) {
+        self.track_transaction(&transaction_data, commitment_config);
         for leader in self.leader_tracker.get_leaders() {
             if leader.tpu_quic.is_none() {
                 error!("leader {:?} has no tpu_quic", leader);
